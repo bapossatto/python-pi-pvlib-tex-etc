@@ -26,6 +26,8 @@ import pvlib
 from pvlib.bifacial import pvfactors_timeseries
 from pvlib import solarposition, tracking
 from pvfactors.run import run_timeseries_engine
+from pvfactors.engine import PVEngine
+from pvfactors.geometry import OrderedPVArray
 from datetime import datetime
 
 # carregar TMY 
@@ -65,7 +67,7 @@ def pvfactor_build_report(pvarray):
 
 pvarray_parameters = {
                                           'n_pvrows': 10,
-                                            'index_observed_pvrow': 4,
+                                            'index_observed_pvrow': 5,
                                             'axis_azimuth': 0,
                                             'pvrow_height': 2.35,
                                             'pvrow_width': 4.6,
@@ -74,6 +76,13 @@ pvarray_parameters = {
                                             'rho_back_pvrow': 0.03,
                                             'horizon_band_angle': 15
                                             }
+
+pvarray = OrderedPVArray.init_from_dict(pvarray_parameters)
+
+fast_mode_pvrow_index = 2  # look at the middle PV row
+eng = PVEngine(pvarray, fast_mode_pvrow_index=fast_mode_pvrow_index)
+
+eng.fit(tmy_data.index, tmy_data['DNI'], tmy_data['DHI'], solpos['apparent_zenith'], solpos['azimuth'], backtracking_angles['surface_tilt'] , backtracking_angles['surface_azimuth'], 0.153)
 
 pvfactor = run_timeseries_engine(pvfactor_build_report,
                                                             pvarray_parameters, # ok?
