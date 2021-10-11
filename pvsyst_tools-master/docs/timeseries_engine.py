@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
 """
-Created on Tue Oct  5 09:22:37 2021
-
 @author: BAP
 """
 
@@ -41,11 +39,12 @@ plt.ylabel('GHI Irradiance (W/m**2)')
 # criar objeto pvlib Location baseado nos metadados do arquivo TMY! Alterar!
 loc = pvlib.location.Location.from_tmy(meta)
 #print(loc)
-loc.latitude=-5.2
-loc.longitude=-37.9
-loc.tz=-3
+#loc.latitude=-5.2
+#loc.longitude=-37.9
+#loc.tz=-3
 plt.plot(tmy_data['GHI'])
 plt.show()
+
 solpos = solarposition.get_solarposition(tmy_data.index, loc.latitude, loc.longitude)
 
 backtracking_angles = tracking.singleaxis(
@@ -53,31 +52,39 @@ backtracking_angles = tracking.singleaxis(
     apparent_azimuth=solpos['azimuth'],
     axis_tilt=0,
     axis_azimuth=180,
-    max_angle=90,
-    backtrack=True,
-    gcr=0.33)
+    max_angle=60,
+    backtrack=1,
+    gcr=0.321)
 
 backtracking_position = backtracking_angles['tracker_theta'].fillna(0)
 
 def pvfactor_build_report(pvarray):
         return {
                 'total_inc_back': pvarray.ts_pvrows[1].back.get_param_weighted('qinc').tolist(),
-                'total_inc_front': pvarray.ts_pvrows[1].front.get_param_weighted('qinc').tolist()
+                'total_abs_back': pvarray.ts_pvrows[1].back.get_param_weighted('qabs'),
+                'total_inc_front': pvarray.ts_pvrows[1].front.get_param_weighted('qinc').tolist(),
+                'total_abs_front': pvarray.ts_pvrows[1].front.get_param_weighted('qabs')
                  }
+#        pvarray['aoi_losses_back_%'] = (pvarray['total_inc_back'] - pvarray['total_abs_back']) / pvarray['total_inc_back'] * 100.
+#        pvarray['aoi_losses_front_%'] = (pvarray['total_inc_front'] - pvarray['total_abs_front']) / pvarray['total_inc_front'] * 100.
 
 pvarray_parameters = {
                                           'n_pvrows': 10,
                                             'index_observed_pvrow': 5,
                                             'axis_azimuth': 0,
                                             'pvrow_height': 2.35,
-                                            'pvrow_width': 4.6,
-                                            'gcr': 0.3,
+                                            'pvrow_width': 4.372,
+                                            'gcr': 0.321,
                                             'rho_front_pvrow': 0.01,
                                             'rho_back_pvrow': 0.03,
                                             'horizon_band_angle': 15
                                             }
 
 pvarray = OrderedPVArray.init_from_dict(pvarray_parameters)
+
+from pvfactors.irradiance import HybridPerezOrdered
+# Create irradiance model
+irradiance_model = HybridPerezOrdered(rho_front=0.01, rho_back=0.03)
 
 fast_mode_pvrow_index = 2  # look at the middle PV row
 eng = PVEngine(pvarray, fast_mode_pvrow_index=fast_mode_pvrow_index)
@@ -122,11 +129,20 @@ poa_sky_diffuse = pvlib.irradiance.perez(surface_tilt=backtracking_angles['surfa
 poa_ground_diffuse = pvlib.irradiance.get_ground_diffuse(backtracking_angles['surface_tilt'], tmy_data['GHI'], albedo=0.153)
 
 aoi = pvlib.irradiance.aoi(backtracking_angles['surface_tilt'], backtracking_angles['surface_azimuth'], solpos['apparent_zenith'], solpos['azimuth'])
+
 poa_irrad = pvlib.irradiance.poa_components(aoi, tmy_data['DNI'], poa_sky_diffuse, poa_ground_diffuse)
 
 iam = pvlib.pvsystem.ashraeiam(aoi, b=0.05) # pvlib.pvsystem.PVSystem.get_iam(aoi, iam_model='physical') #  # TODO work on applying ['IAM'] paramter 
 
-poa_irrad['effective'] = (poa_irrad['poa_direct']*iam) + poa_irrad['poa_diffuse']
+total_abs= pvfactor['total_abs_back']+pvfactor['total_abs_front']
+
+plt.figure(figsize=(16, 10))
+plt.ylabel('Irradiance (W/m**2)')
+plt.title('POA Irradiance_front and back')
+plt.plot(pvfactor[['total_abs_front','total_abs_back']])
+plt.show()
+
+poa_irrad['effective'] = total_abs#(poa_irrad['poa_direct']*iam) + poa_irrad['poa_diffuse']
 
 iam_loss  = (poa_irrad['effective'].sum()/(poa_irrad['poa_global'].sum()))-1
 print('iam loss {} %'.format(iam_loss*100))
@@ -162,7 +178,7 @@ module_parameters = pvsyst.pan_to_module_param(pan)
 print(module_parameters)
 
 # calcular potência DC do módulo
-IL, I0, Rs, Rsh, nNsVth = pvlib.pvsystem.calcparams_pvsyst(effective_irradiance = poa_irrad['poa_global'], temp_cell = pvtemps,
+IL, I0, Rs, Rsh, nNsVth = pvlib.pvsystem.calcparams_pvsyst(effective_irradiance = poa_irrad['effective'], temp_cell = pvtemps,
                                                          alpha_sc = module_parameters['alpha_sc'],
                                                          gamma_ref = module_parameters['gamma_ref'],
                                                          mu_gamma = module_parameters['mu_gamma'],
